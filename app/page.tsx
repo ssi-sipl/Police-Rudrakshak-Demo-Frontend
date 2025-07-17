@@ -1,6 +1,6 @@
 "use client";
-
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -29,6 +29,7 @@ import {
   Clock,
   Calendar,
   RefreshCw,
+  ExternalLink,
 } from "lucide-react";
 import Image from "next/image";
 
@@ -44,6 +45,7 @@ interface Alert {
 type DateFilter = "today" | "yesterday" | "last7days" | "last30days" | "all";
 
 export default function DroneDashboard() {
+  const router = useRouter();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [filteredAlerts, setFilteredAlerts] = useState<Alert[]>([]);
   const [currentAlert, setCurrentAlert] = useState<Alert | null>(null);
@@ -58,6 +60,12 @@ export default function DroneDashboard() {
   // Backend API URL - replace with your actual backend URL
   const API_BASE_URL = "http://localhost:5000/api"; // Change this to your backend URL
   const WS_URL = "ws://localhost:5000"; // Change this to your WebSocket URL
+
+  // Handle alert click - navigate to detail page
+  const handleAlertClick = (alert: Alert) => {
+    // Navigate to the alert detail page
+    router.push(`/alert/${alert.id}`);
+  };
 
   // Fetch alert history from backend
   const fetchAlertHistory = async () => {
@@ -104,7 +112,6 @@ export default function DroneDashboard() {
           );
           return alertDate.getTime() === today.getTime();
         });
-
       case "yesterday":
         const yesterday = new Date(today);
         yesterday.setDate(yesterday.getDate() - 1);
@@ -116,17 +123,14 @@ export default function DroneDashboard() {
           );
           return alertDate.getTime() === yesterday.getTime();
         });
-
       case "last7days":
         const sevenDaysAgo = new Date(today);
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
         return alerts.filter((alert) => alert.timestamp >= sevenDaysAgo);
-
       case "last30days":
         const thirtyDaysAgo = new Date(today);
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         return alerts.filter((alert) => alert.timestamp >= thirtyDaysAgo);
-
       case "all":
       default:
         return alerts;
@@ -270,6 +274,7 @@ export default function DroneDashboard() {
 
     setAlerts((prev) => [mockAlert, ...prev]);
     setCurrentAlert(mockAlert);
+
     setTimeout(() => {
       setCurrentAlert(null);
     }, 10000);
@@ -326,56 +331,68 @@ export default function DroneDashboard() {
 
         {/* Current Alert */}
         {currentAlert && (
-          <Card
-            className={`border-l-4 ${getAlertColor(
-              currentAlert.type
-            )} animate-pulse`}
+          <a
+            href={`/alert/${currentAlert.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block"
           >
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  {getAlertIcon(currentAlert.type)}
-                  <CardTitle className="text-lg">LIVE ALERT</CardTitle>
-                  <Badge variant="destructive">Active</Badge>
+            <Card
+              className={`border-l-4 ${getAlertColor(
+                currentAlert.type
+              )} animate-pulse cursor-pointer hover:shadow-lg transition-shadow`}
+              // onClick={() => handleAlertClick(currentAlert)}
+            >
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    {getAlertIcon(currentAlert.type)}
+                    <CardTitle className="text-lg">LIVE ALERT</CardTitle>
+                    <Badge variant="destructive">Active</Badge>
+                    <ExternalLink className="h-4 w-4 text-gray-500" />
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCurrentAlert(null);
+                    }}
+                  >
+                    ×
+                  </Button>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCurrentAlert(null)}
-                >
-                  ×
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <p className="text-lg font-semibold">
-                    {currentAlert.message}
-                  </p>
-                  <div className="flex items-center space-x-4 text-sm text-gray-600">
-                    <div className="flex items-center space-x-1">
-                      <Clock className="h-4 w-4" />
-                      <span>{formatTimestamp(currentAlert.timestamp)}</span>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <p className="text-lg font-semibold">
+                      {currentAlert.message}
+                    </p>
+                    <div className="flex items-center space-x-4 text-sm text-gray-600">
+                      <div className="flex items-center space-x-1">
+                        <Clock className="h-4 w-4" />
+                        <span>{formatTimestamp(currentAlert.timestamp)}</span>
+                      </div>
+                      {currentAlert.confidence && (
+                        <Badge variant="secondary">
+                          {currentAlert.confidence}% confidence
+                        </Badge>
+                      )}
                     </div>
-                    {currentAlert.confidence && (
-                      <Badge variant="secondary">
-                        {currentAlert.confidence}% confidence
-                      </Badge>
-                    )}
+                  </div>
+                  <div className="relative h-48 bg-gray-100 rounded-lg overflow-hidden">
+                    <Image
+                      src={currentAlert.image || "/placeholder.svg"}
+                      alt="Detection"
+                      fill
+                      className="object-cover"
+                    />
                   </div>
                 </div>
-                <div className="relative h-48 bg-gray-100 rounded-lg overflow-hidden">
-                  <Image
-                    src={currentAlert.image || "/placeholder.svg"}
-                    alt="Detection"
-                    fill
-                    className="object-cover"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </a>
         )}
 
         {/* Stats Cards */}
@@ -432,7 +449,8 @@ export default function DroneDashboard() {
               <div>
                 <CardTitle>Alert History</CardTitle>
                 <CardDescription>
-                  All detection alerts from your drone surveillance system
+                  All detection alerts from your drone surveillance system.
+                  Click on any alert to view details.
                 </CardDescription>
               </div>
               <div className="flex items-center space-x-2">
@@ -474,40 +492,51 @@ export default function DroneDashboard() {
                 <div className="space-y-4">
                   {filteredAlerts.map((alert, index) => (
                     <div key={alert.id}>
-                      <div className="flex space-x-4">
+                      <a
+                        href={`/alert/${alert.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block"
+                      >
                         <div
-                          className={`w-2 h-2 rounded-full mt-2 ${getAlertColor(
-                            alert.type
-                          )}`}
-                        />
-                        <div className="flex-1 grid md:grid-cols-3 gap-4">
-                          <div className="md:col-span-2 space-y-1">
-                            <div className="flex items-center space-x-2">
-                              {getAlertIcon(alert.type)}
-                              <span className="font-medium">
-                                {alert.message}
-                              </span>
-                              <Badge variant="outline" className="text-xs">
-                                {alert.type}
-                              </Badge>
+                          className="flex space-x-4 cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors group"
+                          // onClick={() => handleAlertClick(alert)}
+                        >
+                          <div
+                            className={`w-2 h-2 rounded-full mt-2 ${getAlertColor(
+                              alert.type
+                            )}`}
+                          />
+                          <div className="flex-1 grid md:grid-cols-3 gap-4">
+                            <div className="md:col-span-2 space-y-1">
+                              <div className="flex items-center space-x-2">
+                                {getAlertIcon(alert.type)}
+                                <span className="font-medium">
+                                  {alert.message}
+                                </span>
+                                <Badge variant="outline" className="text-xs">
+                                  {alert.type}
+                                </Badge>
+                                <ExternalLink className="h-3 w-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              </div>
+                              <div className="flex items-center space-x-4 text-sm text-gray-600">
+                                <span>{formatTimestamp(alert.timestamp)}</span>
+                                {alert.confidence && (
+                                  <span>{alert.confidence}% confidence</span>
+                                )}
+                              </div>
                             </div>
-                            <div className="flex items-center space-x-4 text-sm text-gray-600">
-                              <span>{formatTimestamp(alert.timestamp)}</span>
-                              {alert.confidence && (
-                                <span>{alert.confidence}% confidence</span>
-                              )}
+                            <div className="relative h-24 bg-gray-100 rounded overflow-hidden">
+                              <Image
+                                src={alert.image || "/placeholder.svg"}
+                                alt="Detection"
+                                fill
+                                className="object-cover"
+                              />
                             </div>
-                          </div>
-                          <div className="relative h-24 bg-gray-100 rounded overflow-hidden">
-                            <Image
-                              src={alert.image || "/placeholder.svg"}
-                              alt="Detection"
-                              fill
-                              className="object-cover"
-                            />
                           </div>
                         </div>
-                      </div>
+                      </a>
                       {index < filteredAlerts.length - 1 && (
                         <Separator className="mt-4" />
                       )}
