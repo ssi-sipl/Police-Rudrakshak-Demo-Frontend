@@ -1,4 +1,5 @@
 "use client";
+
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -26,20 +27,18 @@ import {
   Wifi,
   WifiOff,
   Camera,
-  Clock,
   Calendar,
   RefreshCw,
   ExternalLink,
 } from "lucide-react";
-import Image from "next/image";
 
 interface Alert {
   id: string;
   type: "person" | "animal";
   message: string;
-  image: string;
   timestamp: Date;
   confidence?: number;
+  drone_id?: string;
 }
 
 type DateFilter = "today" | "yesterday" | "last7days" | "last30days" | "all";
@@ -56,6 +55,20 @@ export default function DroneDashboard() {
   const [dateFilter, setDateFilter] = useState<DateFilter>("today");
   const [isLoading, setIsLoading] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+
+  const [alertQueue, setAlertQueue] = useState<Alert[]>([]);
+  const [isPaused, setIsPaused] = useState(false);
+  const [alertCount, setAlertCount] = useState(0);
+  const [lastAlertTime, setLastAlertTime] = useState<Date | null>(null);
+  const alertBatchRef = useRef<Alert[]>([]);
+  const batchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [currentMode, setCurrentMode] = useState<
+    "detection" | "facerecognition"
+  >("detection");
+  const [isSwitchingMode, setIsSwitchingMode] = useState(false);
+  const [droneId] = useState("drone-1"); // You can make this configurable later
+  const [allModesOff, setAllModesOff] = useState(false);
 
   // Backend API URL - replace with your actual backend URL
   const API_BASE_URL = "http://localhost:5000/api"; // Change this to your backend URL
@@ -80,12 +93,12 @@ export default function DroneDashboard() {
 
       // Transform the data to match our Alert interface
       const transformedAlerts: Alert[] = data?.data.map((alert: any) => ({
-        id: alert.id,
+        id: alert.id || `alert-${Date.now()}-${Math.random()}`,
         type: alert.type,
         message: alert.message,
-        image: alert.image,
-        timestamp: new Date(alert.createdAt),
+        timestamp: new Date(alert.createdAt || alert.timestamp || Date.now()),
         confidence: alert.confidence,
+        drone_id: alert.drone_id,
       }));
 
       setAlerts(transformedAlerts);
@@ -164,23 +177,41 @@ export default function DroneDashboard() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log("Received WebSocket data:", data);
+
           const newAlert: Alert = {
-            id: data.id,
+            id: data.id || `alert-${Date.now()}-${Math.random()}`,
             type: data.type,
             message: data.message,
-            image: data.image,
             timestamp: new Date(data.timestamp || Date.now()),
             confidence: data.confidence,
+            drone_id: data.drone_id,
           };
 
-          // Add new alert to the beginning of the list
-          setAlerts((prev) => [newAlert, ...prev]);
-          setCurrentAlert(newAlert);
+          // Add to batch
+          alertBatchRef.current.push(newAlert);
 
-          // Auto-hide current alert after 10 seconds
-          setTimeout(() => {
-            setCurrentAlert(null);
-          }, 10000);
+          // Set current alert for live display
+          if (!isPaused) {
+            setCurrentAlert(newAlert);
+            setLastAlertTime(new Date());
+          }
+
+          // Batch process alerts every 2 seconds
+          if (batchTimeoutRef.current) {
+            clearTimeout(batchTimeoutRef.current);
+          }
+
+          batchTimeoutRef.current = setTimeout(() => {
+            if (alertBatchRef.current.length > 0) {
+              setAlerts((prev) => [
+                ...alertBatchRef.current.reverse(),
+                ...prev,
+              ]);
+              setAlertCount((prev) => prev + alertBatchRef.current.length);
+              alertBatchRef.current = [];
+            }
+          }, 2000);
         } catch (error) {
           console.error("Error parsing WebSocket message:", error);
         }
@@ -258,6 +289,15 @@ export default function DroneDashboard() {
     }
   };
 
+  // Format confidence as percentage
+  const formatConfidence = (confidence?: number) => {
+    if (!confidence) return null;
+    // If confidence is between 0 and 1, convert to percentage
+    const percentage =
+      confidence < 1 ? Math.round(confidence * 100) : Math.round(confidence);
+    return `${percentage}%`;
+  };
+
   // Mock function to simulate alerts (remove in production)
   const simulateAlert = () => {
     const mockAlert: Alert = {
@@ -267,17 +307,119 @@ export default function DroneDashboard() {
         Math.random() > 0.5
           ? "Person detected in restricted area"
           : "Animal spotted near perimeter",
-      image: "/placeholder.svg?height=300&width=400",
       timestamp: new Date(),
-      confidence: Math.round(Math.random() * 30 + 70), // 70-100%
+      confidence: Math.random() * 0.3 + 0.7, // 0.7-1.0 to match your backend format
+      drone_id: "drone-1",
     };
 
     setAlerts((prev) => [mockAlert, ...prev]);
     setCurrentAlert(mockAlert);
-
     setTimeout(() => {
       setCurrentAlert(null);
     }, 10000);
+  };
+
+  // Switch between detection and face recognition modes
+  const switchMode = async (newMode: "detection" | "facerecognition") => {
+    setIsSwitchingMode(true);
+
+    try {
+      const endpoint =
+        newMode === "facerecognition"
+          ? `${API_BASE_URL}/process/facerecognition`
+          : `${API_BASE_URL}/process/detection`;
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "on",
+          drone_id: droneId,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to switch to ${newMode} mode`);
+      }
+
+      // Turn off the previous mode
+      // const previousMode = currentMode;
+      // const previousEndpoint =
+      //   previousMode === "facerecognition"
+      //     ? `${API_BASE_URL}/process/facerecognition`
+      //     : `${API_BASE_URL}/process/detection`;
+
+      // await fetch(previousEndpoint, {
+      //   method: "POST",
+      //   headers: {
+      //     "Content-Type": "application/json",
+      //   },
+      //   body: JSON.stringify({
+      //     action: "off",
+      //     drone_id: droneId,
+      //   }),
+      // });
+
+      setCurrentMode(newMode);
+      setAllModesOff(false);
+      // console.log(`Successfully switched to ${newMode} mode`);
+    } catch (error) {
+      console.error("Error switching mode:", error);
+      // You might want to show a toast notification here
+    } finally {
+      setIsSwitchingMode(false);
+    }
+  };
+
+  // Turn off all modes
+  const turnOffAllModes = async () => {
+    setIsSwitchingMode(true);
+
+    try {
+      // Turn off detection mode
+      const detectionResponse = await fetch(
+        `${API_BASE_URL}/process/detection`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "off",
+            drone_id: droneId,
+          }),
+        }
+      );
+
+      // Turn off face recognition mode
+      const frResponse = await fetch(
+        `${API_BASE_URL}/process/facerecognition`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "off",
+            drone_id: droneId,
+          }),
+        }
+      );
+
+      if (!detectionResponse.ok || !frResponse.ok) {
+        throw new Error("Failed to turn off all modes");
+      }
+
+      setAllModesOff(true);
+      console.log("Successfully turned off all modes");
+    } catch (error) {
+      console.error("Error turning off all modes:", error);
+      // You might want to show a toast notification here
+    } finally {
+      setIsSwitchingMode(false);
+    }
   };
 
   return (
@@ -291,7 +433,15 @@ export default function DroneDashboard() {
               <h1 className="text-3xl font-bold text-gray-900">
                 Drone Surveillance
               </h1>
-              <p className="text-gray-600">Real-time object detection alerts</p>
+              <p className="text-gray-600">
+                Real-time object detection alerts -{" "}
+                {allModesOff
+                  ? "All Modes Off"
+                  : currentMode === "detection"
+                  ? "Detection"
+                  : "Face Recognition"}{" "}
+                Mode
+              </p>
             </div>
           </div>
           <div className="flex items-center space-x-4">
@@ -329,70 +479,181 @@ export default function DroneDashboard() {
           </div>
         </div>
 
-        {/* Current Alert */}
-        {currentAlert && (
-          <a
-            href={`/alert/${currentAlert.id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block"
-          >
-            <Card
-              className={`border-l-4 ${getAlertColor(
-                currentAlert.type
-              )} animate-pulse cursor-pointer hover:shadow-lg transition-shadow`}
-              // onClick={() => handleAlertClick(currentAlert)}
-            >
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    {getAlertIcon(currentAlert.type)}
-                    <CardTitle className="text-lg">LIVE ALERT</CardTitle>
-                    <Badge variant="destructive">Active</Badge>
-                    <ExternalLink className="h-4 w-4 text-gray-500" />
-                  </div>
+        {/* Mode Control Panel */}
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <Camera className="h-5 w-5 text-blue-600" />
+                  <span className="font-medium">Processing Mode:</span>
+                </div>
+                <div className="flex items-center space-x-3">
                   <Button
-                    variant="ghost"
+                    onClick={() => switchMode("detection")}
+                    variant={
+                      currentMode === "detection" && !allModesOff
+                        ? "default"
+                        : "outline"
+                    }
                     size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCurrentAlert(null);
-                    }}
+                    disabled={isSwitchingMode}
+                    className={
+                      currentMode === "detection" && !allModesOff
+                        ? "bg-blue-600 hover:bg-blue-700"
+                        : ""
+                    }
                   >
-                    ×
+                    {currentMode === "detection" && !allModesOff && (
+                      <div className="w-2 h-2 bg-green-400 rounded-full mr-2" />
+                    )}
+                    Detection
+                  </Button>
+                  <Button
+                    onClick={() => switchMode("facerecognition")}
+                    variant={
+                      currentMode === "facerecognition" && !allModesOff
+                        ? "default"
+                        : "outline"
+                    }
+                    size="sm"
+                    disabled={isSwitchingMode}
+                    className={
+                      currentMode === "facerecognition" && !allModesOff
+                        ? "bg-purple-600 hover:bg-purple-700"
+                        : ""
+                    }
+                  >
+                    {currentMode === "facerecognition" && !allModesOff && (
+                      <div className="w-2 h-2 bg-green-400 rounded-full mr-2" />
+                    )}
+                    Face Recognition
+                  </Button>
+                  <Separator orientation="vertical" className="h-6" />
+                  <Button
+                    onClick={turnOffAllModes}
+                    variant={allModesOff ? "default" : "outline"}
+                    size="sm"
+                    disabled={isSwitchingMode}
+                    className={
+                      allModesOff
+                        ? "bg-red-600 hover:bg-red-700"
+                        : "hover:bg-red-50 hover:text-red-600 hover:border-red-300"
+                    }
+                  >
+                    {allModesOff && (
+                      <div className="w-2 h-2 bg-green-400 rounded-full mr-2" />
+                    )}
+                    Turn Off All
                   </Button>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <p className="text-lg font-semibold">
+              </div>
+              <div className="flex items-center space-x-4">
+                <div className="text-sm text-gray-600">
+                  <span>Status: </span>
+                  <Badge variant={allModesOff ? "destructive" : "default"}>
+                    {allModesOff
+                      ? "All Off"
+                      : currentMode === "detection"
+                      ? "Detection Active"
+                      : "Face Recognition Active"}
+                  </Badge>
+                </div>
+                <div className="text-sm text-gray-600">
+                  <span>Drone ID: </span>
+                  <Badge variant="outline">{droneId}</Badge>
+                </div>
+                {isSwitchingMode && (
+                  <div className="flex items-center space-x-2 text-sm text-gray-600">
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <span>Switching mode...</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Alert Controls */}
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <Button
+                  onClick={() => setIsPaused(!isPaused)}
+                  variant={isPaused ? "default" : "outline"}
+                  size="sm"
+                >
+                  {isPaused ? "Resume" : "Pause"} Live Updates
+                </Button>
+                <div className="text-sm text-gray-600">
+                  {lastAlertTime && (
+                    <span>Last alert: {formatTimestamp(lastAlertTime)}</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center space-x-4 text-sm">
+                <span className="text-gray-600">
+                  Total alerts today:{" "}
+                  <span className="font-semibold">{alertCount}</span>
+                </span>
+                {alertBatchRef.current.length > 0 && (
+                  <Badge variant="secondary">
+                    {alertBatchRef.current.length} pending
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Current Alert - Compact Version */}
+        {currentAlert && !isPaused && (
+          <Card
+            className={`border-l-4 ${getAlertColor(
+              currentAlert.type
+            )} animate-pulse`}
+          >
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  {getAlertIcon(currentAlert.type)}
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-semibold">LIVE ALERT</span>
+                      <Badge variant="destructive" className="text-xs">
+                        Active
+                      </Badge>
+                      <Badge variant="outline" className="text-xs">
+                        {currentAlert.type}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-gray-600 mt-1">
                       {currentAlert.message}
                     </p>
-                    <div className="flex items-center space-x-4 text-sm text-gray-600">
-                      <div className="flex items-center space-x-1">
-                        <Clock className="h-4 w-4" />
-                        <span>{formatTimestamp(currentAlert.timestamp)}</span>
-                      </div>
+                    <div className="flex items-center space-x-3 text-xs text-gray-500 mt-1">
+                      <span>{formatTimestamp(currentAlert.timestamp)}</span>
                       {currentAlert.confidence && (
-                        <Badge variant="secondary">
-                          {currentAlert.confidence}% confidence
-                        </Badge>
+                        <span>
+                          {formatConfidence(currentAlert.confidence)} confidence
+                        </span>
+                      )}
+                      {currentAlert.drone_id && (
+                        <span>{currentAlert.drone_id}</span>
                       )}
                     </div>
                   </div>
-                  <div className="relative h-48 bg-gray-100 rounded-lg overflow-hidden">
-                    <Image
-                      src={currentAlert.image || "/placeholder.svg"}
-                      alt="Detection"
-                      fill
-                      className="object-cover"
-                    />
-                  </div>
                 </div>
-              </CardContent>
-            </Card>
-          </a>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCurrentAlert(null)}
+                >
+                  ×
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Stats Cards */}
@@ -489,57 +750,41 @@ export default function DroneDashboard() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-2">
                   {filteredAlerts.map((alert, index) => (
                     <div key={alert.id}>
-                      <a
-                        href={`/alert/${alert.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block"
+                      <div
+                        className="flex items-center space-x-3 p-3 hover:bg-gray-50 rounded-lg transition-colors cursor-pointer"
+                        onClick={() => handleAlertClick(alert)}
                       >
                         <div
-                          className="flex space-x-4 cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors group"
-                          // onClick={() => handleAlertClick(alert)}
-                        >
-                          <div
-                            className={`w-2 h-2 rounded-full mt-2 ${getAlertColor(
-                              alert.type
-                            )}`}
-                          />
-                          <div className="flex-1 grid md:grid-cols-3 gap-4">
-                            <div className="md:col-span-2 space-y-1">
-                              <div className="flex items-center space-x-2">
-                                {getAlertIcon(alert.type)}
-                                <span className="font-medium">
-                                  {alert.message}
-                                </span>
-                                <Badge variant="outline" className="text-xs">
-                                  {alert.type}
-                                </Badge>
-                                <ExternalLink className="h-3 w-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                              </div>
-                              <div className="flex items-center space-x-4 text-sm text-gray-600">
-                                <span>{formatTimestamp(alert.timestamp)}</span>
-                                {alert.confidence && (
-                                  <span>{alert.confidence}% confidence</span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="relative h-24 bg-gray-100 rounded overflow-hidden">
-                              <Image
-                                src={alert.image || "/placeholder.svg"}
-                                alt="Detection"
-                                fill
-                                className="object-cover"
-                              />
-                            </div>
+                          className={`w-3 h-3 rounded-full ${getAlertColor(
+                            alert.type
+                          )}`}
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2">
+                            {getAlertIcon(alert.type)}
+                            <span className="font-medium text-sm">
+                              {alert.message}
+                            </span>
+                            <Badge variant="outline" className="text-xs">
+                              {alert.type}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
+                            <span>{formatTimestamp(alert.timestamp)}</span>
+                            {alert.confidence && (
+                              <span>
+                                {formatConfidence(alert.confidence)} confidence
+                              </span>
+                            )}
+                            {alert.drone_id && <span>{alert.drone_id}</span>}
                           </div>
                         </div>
-                      </a>
-                      {index < filteredAlerts.length - 1 && (
-                        <Separator className="mt-4" />
-                      )}
+                        <ExternalLink className="h-4 w-4 text-gray-400" />
+                      </div>
+                      {index < filteredAlerts.length - 1 && <Separator />}
                     </div>
                   ))}
                 </div>
