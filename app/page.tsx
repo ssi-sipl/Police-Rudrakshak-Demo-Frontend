@@ -31,11 +31,13 @@ import {
   RefreshCw,
   ExternalLink,
 } from "lucide-react";
+import Image from "next/image";
 
 interface Alert {
   id: string;
   type: "person" | "animal";
   message: string;
+  image?: string; // Add back the image field
   timestamp: Date;
   confidence?: number;
   drone_id?: string;
@@ -96,6 +98,7 @@ export default function DroneDashboard() {
         id: alert.id || `alert-${Date.now()}-${Math.random()}`,
         type: alert.type,
         message: alert.message,
+        image: alert.image || "/placeholder.svg?height=300&width=400",
         timestamp: new Date(alert.createdAt || alert.timestamp || Date.now()),
         confidence: alert.confidence,
         drone_id: alert.drone_id,
@@ -183,6 +186,7 @@ export default function DroneDashboard() {
             id: data.id || `alert-${Date.now()}-${Math.random()}`,
             type: data.type,
             message: data.message,
+            image: data.image || "/placeholder.svg?height=300&width=400",
             timestamp: new Date(data.timestamp || Date.now()),
             confidence: data.confidence,
             drone_id: data.drone_id,
@@ -310,6 +314,7 @@ export default function DroneDashboard() {
       timestamp: new Date(),
       confidence: Math.random() * 0.3 + 0.7, // 0.7-1.0 to match your backend format
       drone_id: "drone-1",
+      image: "/placeholder.svg?height=300&width=400",
     };
 
     setAlerts((prev) => [mockAlert, ...prev]);
@@ -364,7 +369,7 @@ export default function DroneDashboard() {
 
       setCurrentMode(newMode);
       setAllModesOff(false);
-      // console.log(`Successfully switched to ${newMode} mode`);
+      console.log(`Successfully switched to ${newMode} mode`);
     } catch (error) {
       console.error("Error switching mode:", error);
       // You might want to show a toast notification here
@@ -607,7 +612,7 @@ export default function DroneDashboard() {
           </CardContent>
         </Card>
 
-        {/* Current Alert - Compact Version */}
+        {/* Current Alert - With Image */}
         {currentAlert && !isPaused && (
           <Card
             className={`border-l-4 ${getAlertColor(
@@ -615,42 +620,58 @@ export default function DroneDashboard() {
             )} animate-pulse`}
           >
             <CardContent className="py-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  {getAlertIcon(currentAlert.type)}
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-semibold">LIVE ALERT</span>
-                      <Badge variant="destructive" className="text-xs">
-                        Active
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {currentAlert.type}
-                      </Badge>
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="md:col-span-2 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      {getAlertIcon(currentAlert.type)}
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-semibold">LIVE ALERT</span>
+                          <Badge variant="destructive" className="text-xs">
+                            Active
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {currentAlert.type}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-gray-600 mt-1">
+                          {currentAlert.message}
+                        </p>
+                        <div className="flex items-center space-x-3 text-xs text-gray-500 mt-1">
+                          <span>{formatTimestamp(currentAlert.timestamp)}</span>
+                          {currentAlert.confidence && (
+                            <span>
+                              {formatConfidence(currentAlert.confidence)}{" "}
+                              confidence
+                            </span>
+                          )}
+                          {currentAlert.drone_id && (
+                            <span>{currentAlert.drone_id}</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-sm text-gray-600 mt-1">
-                      {currentAlert.message}
-                    </p>
-                    <div className="flex items-center space-x-3 text-xs text-gray-500 mt-1">
-                      <span>{formatTimestamp(currentAlert.timestamp)}</span>
-                      {currentAlert.confidence && (
-                        <span>
-                          {formatConfidence(currentAlert.confidence)} confidence
-                        </span>
-                      )}
-                      {currentAlert.drone_id && (
-                        <span>{currentAlert.drone_id}</span>
-                      )}
-                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCurrentAlert(null)}
+                    >
+                      ×
+                    </Button>
                   </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCurrentAlert(null)}
-                >
-                  ×
-                </Button>
+                <div className="relative h-48 bg-gray-100 rounded-lg overflow-hidden">
+                  <Image
+                    src={
+                      currentAlert.image ||
+                      "/placeholder.svg?height=300&width=400"
+                    }
+                    alt="Detection"
+                    fill
+                    className="object-cover"
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -754,35 +775,49 @@ export default function DroneDashboard() {
                   {filteredAlerts.map((alert, index) => (
                     <div key={alert.id}>
                       <div
-                        className="flex items-center space-x-3 p-3 hover:bg-gray-50 rounded-lg transition-colors cursor-pointer"
+                        className="flex space-x-4 p-3 hover:bg-gray-50 rounded-lg transition-colors cursor-pointer"
                         onClick={() => handleAlertClick(alert)}
                       >
                         <div
-                          className={`w-3 h-3 rounded-full ${getAlertColor(
+                          className={`w-3 h-3 rounded-full mt-2 ${getAlertColor(
                             alert.type
                           )}`}
                         />
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2">
-                            {getAlertIcon(alert.type)}
-                            <span className="font-medium text-sm">
-                              {alert.message}
-                            </span>
-                            <Badge variant="outline" className="text-xs">
-                              {alert.type}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
-                            <span>{formatTimestamp(alert.timestamp)}</span>
-                            {alert.confidence && (
-                              <span>
-                                {formatConfidence(alert.confidence)} confidence
+                        <div className="flex-1 grid md:grid-cols-3 gap-4">
+                          <div className="md:col-span-2 space-y-1">
+                            <div className="flex items-center space-x-2">
+                              {getAlertIcon(alert.type)}
+                              <span className="font-medium text-sm">
+                                {alert.message}
                               </span>
-                            )}
-                            {alert.drone_id && <span>{alert.drone_id}</span>}
+                              <Badge variant="outline" className="text-xs">
+                                {alert.type}
+                              </Badge>
+                              <ExternalLink className="h-4 w-4 text-gray-400" />
+                            </div>
+                            <div className="flex items-center space-x-4 text-xs text-gray-500">
+                              <span>{formatTimestamp(alert.timestamp)}</span>
+                              {alert.confidence && (
+                                <span>
+                                  {formatConfidence(alert.confidence)}{" "}
+                                  confidence
+                                </span>
+                              )}
+                              {alert.drone_id && <span>{alert.drone_id}</span>}
+                            </div>
+                          </div>
+                          <div className="relative h-24 bg-gray-100 rounded overflow-hidden">
+                            <Image
+                              src={
+                                alert.image ||
+                                "/placeholder.svg?height=300&width=400"
+                              }
+                              alt="Detection"
+                              fill
+                              className="object-cover"
+                            />
                           </div>
                         </div>
-                        <ExternalLink className="h-4 w-4 text-gray-400" />
                       </div>
                       {index < filteredAlerts.length - 1 && <Separator />}
                     </div>
