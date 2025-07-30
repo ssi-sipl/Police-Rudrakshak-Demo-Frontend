@@ -30,6 +30,8 @@ import {
   Calendar,
   RefreshCw,
   ExternalLink,
+  Plane,
+  MapPin,
 } from "lucide-react";
 import Image from "next/image";
 
@@ -37,13 +39,15 @@ interface Alert {
   id: string;
   type: "person" | "animal";
   message: string;
-  image?: string; // Add back the image field
+  image?: string;
   timestamp: Date;
   confidence?: number;
   drone_id?: string;
+  source?: "onboard" | "offboard"; // Add source field
 }
 
 type DateFilter = "today" | "yesterday" | "last7days" | "last30days" | "all";
+type SourceFilter = "all" | "onboard" | "offboard";
 
 export default function DroneDashboard() {
   const router = useRouter();
@@ -55,30 +59,28 @@ export default function DroneDashboard() {
     "connecting" | "connected" | "disconnected"
   >("disconnected");
   const [dateFilter, setDateFilter] = useState<DateFilter>("today");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all"); // Add source filter state
   const [isLoading, setIsLoading] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
-
   const [alertQueue, setAlertQueue] = useState<Alert[]>([]);
   const [isPaused, setIsPaused] = useState(false);
   const [alertCount, setAlertCount] = useState(0);
   const [lastAlertTime, setLastAlertTime] = useState<Date | null>(null);
   const alertBatchRef = useRef<Alert[]>([]);
   const batchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
   const [currentMode, setCurrentMode] = useState<
     "detection" | "facerecognition"
   >("detection");
   const [isSwitchingMode, setIsSwitchingMode] = useState(false);
-  const [droneId] = useState("drone-1"); // You can make this configurable later
+  const [droneId] = useState("drone-1");
   const [allModesOff, setAllModesOff] = useState(false);
 
   // Backend API URL - replace with your actual backend URL
-  const API_BASE_URL = "http://localhost:5000/api"; // Change this to your backend URL
-  const WS_URL = "ws://localhost:5000"; // Change this to your WebSocket URL
+  const API_BASE_URL = "http://localhost:5000/api";
+  const WS_URL = "ws://localhost:5000";
 
   // Handle alert click - navigate to detail page
   const handleAlertClick = (alert: Alert) => {
-    // Navigate to the alert detail page
     router.push(`/alert/${alert.id}`);
   };
 
@@ -93,34 +95,49 @@ export default function DroneDashboard() {
       const data = await response.json();
       console.log("Fetched alert history:", data);
 
-      // Transform the data to match our Alert interface
-      const transformedAlerts: Alert[] = data?.data.map((alert: any) => ({
-        id: alert.id || `alert-${Date.now()}-${Math.random()}`,
-        type: alert.type,
-        message: alert.message,
-        image: alert.image || "/placeholder.svg?height=300&width=400",
-        timestamp: new Date(alert.createdAt || alert.timestamp || Date.now()),
-        confidence: alert.confidence,
-        drone_id: alert.drone_id,
-      }));
+      const transformedAlerts: Alert[] =
+        data?.data?.map((alert: any) => ({
+          id: alert.id || `alert-${Date.now()}-${Math.random()}`,
+          type: alert.type,
+          message: alert.message,
+          image: alert.image || "/placeholder.svg?height=300&width=400",
+          timestamp: new Date(alert.createdAt || alert.timestamp || Date.now()),
+          confidence: alert.confidence,
+          drone_id: alert.drone_id,
+          source: alert.source || "onboard", // Default to onboard if not specified
+        })) || [];
 
+      console.log("Transformed alerts:", transformedAlerts);
       setAlerts(transformedAlerts);
     } catch (error) {
       console.error("Error fetching alert history:", error);
-      // You might want to show a toast notification here
+      // Set empty array on error to prevent undefined issues
+      setAlerts([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Filter alerts based on selected date range
-  const filterAlertsByDate = (alerts: Alert[], filter: DateFilter): Alert[] => {
+  // Filter alerts based on selected date range and source
+  const filterAlerts = (
+    alerts: Alert[],
+    dateFilter: DateFilter,
+    sourceFilter: SourceFilter
+  ): Alert[] => {
+    let filtered = alerts;
+
+    // Filter by source first
+    if (sourceFilter !== "all") {
+      filtered = filtered.filter((alert) => alert.source === sourceFilter);
+    }
+
+    // Then filter by date
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    switch (filter) {
+    switch (dateFilter) {
       case "today":
-        return alerts.filter((alert) => {
+        return filtered.filter((alert) => {
           const alertDate = new Date(
             alert.timestamp.getFullYear(),
             alert.timestamp.getMonth(),
@@ -131,7 +148,7 @@ export default function DroneDashboard() {
       case "yesterday":
         const yesterday = new Date(today);
         yesterday.setDate(yesterday.getDate() - 1);
-        return alerts.filter((alert) => {
+        return filtered.filter((alert) => {
           const alertDate = new Date(
             alert.timestamp.getFullYear(),
             alert.timestamp.getMonth(),
@@ -142,22 +159,22 @@ export default function DroneDashboard() {
       case "last7days":
         const sevenDaysAgo = new Date(today);
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        return alerts.filter((alert) => alert.timestamp >= sevenDaysAgo);
+        return filtered.filter((alert) => alert.timestamp >= sevenDaysAgo);
       case "last30days":
         const thirtyDaysAgo = new Date(today);
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        return alerts.filter((alert) => alert.timestamp >= thirtyDaysAgo);
+        return filtered.filter((alert) => alert.timestamp >= thirtyDaysAgo);
       case "all":
       default:
-        return alerts;
+        return filtered;
     }
   };
 
-  // Update filtered alerts when alerts or date filter changes
+  // Update filtered alerts when alerts, date filter, or source filter changes
   useEffect(() => {
-    const filtered = filterAlertsByDate(alerts, dateFilter);
+    const filtered = filterAlerts(alerts, dateFilter, sourceFilter);
     setFilteredAlerts(filtered);
-  }, [alerts, dateFilter]);
+  }, [alerts, dateFilter, sourceFilter]);
 
   // Fetch initial data on component mount
   useEffect(() => {
@@ -179,43 +196,80 @@ export default function DroneDashboard() {
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          console.log("Received WebSocket data:", data);
+          const message = JSON.parse(event.data);
+          console.log("Received WebSocket data:", message);
 
-          const newAlert: Alert = {
-            id: data.id || `alert-${Date.now()}-${Math.random()}`,
-            type: data.type,
-            message: data.message,
-            image: data.image || "/placeholder.svg?height=300&width=400",
-            timestamp: new Date(data.timestamp || Date.now()),
-            confidence: data.confidence,
-            drone_id: data.drone_id,
-          };
+          // Handle the new message format: { type: "alert", source: "onboard"/"offboard", data: alert }
+          if (message.type === "alert" && message.data) {
+            const alertData = message.data;
+            const newAlert: Alert = {
+              id: alertData.id || `alert-${Date.now()}-${Math.random()}`,
+              type: alertData.type,
+              message: alertData.message,
+              image: alertData.image || "/placeholder.svg?height=300&width=400",
+              timestamp: new Date(alertData.timestamp || Date.now()),
+              confidence: alertData.confidence,
+              drone_id: alertData.drone_id,
+              source: message.source, // Extract source from the message wrapper
+            };
 
-          // Add to batch
-          alertBatchRef.current.push(newAlert);
+            console.log("New alert created:", newAlert);
+            console.log("Current source filter:", sourceFilter);
+            console.log("Alert source:", message.source);
+            console.log(
+              "Should show live alert:",
+              !isPaused &&
+                (sourceFilter === "all" || sourceFilter === message.source)
+            );
 
-          // Set current alert for live display
-          if (!isPaused) {
-            setCurrentAlert(newAlert);
-            setLastAlertTime(new Date());
-          }
+            // Add to batch
+            alertBatchRef.current.push(newAlert);
 
-          // Batch process alerts every 2 seconds
-          if (batchTimeoutRef.current) {
-            clearTimeout(batchTimeoutRef.current);
-          }
-
-          batchTimeoutRef.current = setTimeout(() => {
-            if (alertBatchRef.current.length > 0) {
-              setAlerts((prev) => [
-                ...alertBatchRef.current.reverse(),
-                ...prev,
-              ]);
-              setAlertCount((prev) => prev + alertBatchRef.current.length);
-              alertBatchRef.current = [];
+            // Set current alert for live display (only if source matches current filter or filter is "all")
+            if (
+              !isPaused &&
+              (sourceFilter === "all" || sourceFilter === message.source)
+            ) {
+              console.log("Showing live alert for source:", message.source);
+              setCurrentAlert(newAlert);
+              setLastAlertTime(new Date());
+              setTimeout(() => {
+                setCurrentAlert((prev) => {
+                  if (prev?.id === newAlert.id) {
+                    return null;
+                  }
+                  return prev;
+                });
+              }, 10000);
+            } else {
+              console.log(
+                "Filtering out live alert - source:",
+                message.source,
+                "filter:",
+                sourceFilter,
+                "paused:",
+                isPaused
+              );
             }
-          }, 2000);
+
+            // Batch process alerts every 2 seconds
+            if (batchTimeoutRef.current) {
+              clearTimeout(batchTimeoutRef.current);
+            }
+            batchTimeoutRef.current = setTimeout(() => {
+              if (alertBatchRef.current.length > 0) {
+                setAlerts((prev) => {
+                  const newAlerts = [
+                    ...alertBatchRef.current.reverse(),
+                    ...prev,
+                  ];
+                  return newAlerts.slice(0, 100);
+                });
+                setAlertCount((prev) => prev + alertBatchRef.current.length);
+                alertBatchRef.current = [];
+              }
+            }, 2000);
+          }
         } catch (error) {
           console.error("Error parsing WebSocket message:", error);
         }
@@ -225,7 +279,6 @@ export default function DroneDashboard() {
         console.log("WebSocket disconnected");
         setIsConnected(false);
         setConnectionStatus("disconnected");
-        // Attempt to reconnect after 3 seconds
         setTimeout(connectWebSocket, 3000);
       };
 
@@ -242,7 +295,19 @@ export default function DroneDashboard() {
         wsRef.current.close();
       }
     };
-  }, []);
+  }, [isPaused]); // Remove sourceFilter from here
+
+  // Clear current alert if it doesn't match the new source filter
+  useEffect(() => {
+    if (
+      currentAlert &&
+      sourceFilter !== "all" &&
+      currentAlert.source !== sourceFilter
+    ) {
+      console.log("Clearing current alert due to source filter change");
+      setCurrentAlert(null);
+    }
+  }, [sourceFilter, currentAlert]);
 
   const getAlertIcon = (type: string) => {
     switch (type) {
@@ -263,6 +328,28 @@ export default function DroneDashboard() {
         return "bg-orange-500";
       default:
         return "bg-yellow-500";
+    }
+  };
+
+  const getSourceIcon = (source?: string) => {
+    switch (source) {
+      case "onboard":
+        return <Plane className="h-4 w-4" />;
+      case "offboard":
+        return <MapPin className="h-4 w-4" />;
+      default:
+        return null;
+    }
+  };
+
+  const getSourceColor = (source?: string) => {
+    switch (source) {
+      case "onboard":
+        return "bg-blue-100 text-blue-800";
+      case "offboard":
+        return "bg-green-100 text-green-800";
+      default:
+        return "bg-gray-100 text-gray-800";
     }
   };
 
@@ -293,10 +380,21 @@ export default function DroneDashboard() {
     }
   };
 
-  // Format confidence as percentage
+  const getSourceFilterLabel = (filter: SourceFilter) => {
+    switch (filter) {
+      case "all":
+        return "All Sources";
+      case "onboard":
+        return "Onboard";
+      case "offboard":
+        return "Offboard";
+      default:
+        return "All Sources";
+    }
+  };
+
   const formatConfidence = (confidence?: number) => {
     if (!confidence) return null;
-    // If confidence is between 0 and 1, convert to percentage
     const percentage =
       confidence < 1 ? Math.round(confidence * 100) : Math.round(confidence);
     return `${percentage}%`;
@@ -304,6 +402,9 @@ export default function DroneDashboard() {
 
   // Mock function to simulate alerts (remove in production)
   const simulateAlert = () => {
+    const sources: ("onboard" | "offboard")[] = ["onboard", "offboard"];
+    const randomSource = sources[Math.floor(Math.random() * sources.length)];
+
     const mockAlert: Alert = {
       id: Date.now().toString(),
       type: Math.random() > 0.5 ? "person" : "animal",
@@ -312,22 +413,26 @@ export default function DroneDashboard() {
           ? "Person detected in restricted area"
           : "Animal spotted near perimeter",
       timestamp: new Date(),
-      confidence: Math.random() * 0.3 + 0.7, // 0.7-1.0 to match your backend format
+      confidence: Math.random() * 0.3 + 0.7,
       drone_id: "drone-1",
       image: "/placeholder.svg?height=300&width=400",
+      source: randomSource,
     };
 
     setAlerts((prev) => [mockAlert, ...prev]);
-    setCurrentAlert(mockAlert);
-    setTimeout(() => {
-      setCurrentAlert(null);
-    }, 10000);
+
+    // Only show as current alert if it matches the current filter
+    if (sourceFilter === "all" || sourceFilter === randomSource) {
+      setCurrentAlert(mockAlert);
+      setTimeout(() => {
+        setCurrentAlert(null);
+      }, 10000);
+    }
   };
 
   // Switch between detection and face recognition modes
   const switchMode = async (newMode: "detection" | "facerecognition") => {
     setIsSwitchingMode(true);
-
     try {
       const endpoint =
         newMode === "facerecognition"
@@ -349,30 +454,11 @@ export default function DroneDashboard() {
         throw new Error(`Failed to switch to ${newMode} mode`);
       }
 
-      // Turn off the previous mode
-      // const previousMode = currentMode;
-      // const previousEndpoint =
-      //   previousMode === "facerecognition"
-      //     ? `${API_BASE_URL}/process/facerecognition`
-      //     : `${API_BASE_URL}/process/detection`;
-
-      // await fetch(previousEndpoint, {
-      //   method: "POST",
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //   },
-      //   body: JSON.stringify({
-      //     action: "off",
-      //     drone_id: droneId,
-      //   }),
-      // });
-
       setCurrentMode(newMode);
       setAllModesOff(false);
       console.log(`Successfully switched to ${newMode} mode`);
     } catch (error) {
       console.error("Error switching mode:", error);
-      // You might want to show a toast notification here
     } finally {
       setIsSwitchingMode(false);
     }
@@ -381,9 +467,7 @@ export default function DroneDashboard() {
   // Turn off all modes
   const turnOffAllModes = async () => {
     setIsSwitchingMode(true);
-
     try {
-      // Turn off detection mode
       const detectionResponse = await fetch(
         `${API_BASE_URL}/process/detection`,
         {
@@ -398,7 +482,6 @@ export default function DroneDashboard() {
         }
       );
 
-      // Turn off face recognition mode
       const frResponse = await fetch(
         `${API_BASE_URL}/process/facerecognition`,
         {
@@ -421,7 +504,6 @@ export default function DroneDashboard() {
       console.log("Successfully turned off all modes");
     } catch (error) {
       console.error("Error turning off all modes:", error);
-      // You might want to show a toast notification here
     } finally {
       setIsSwitchingMode(false);
     }
@@ -465,7 +547,6 @@ export default function DroneDashboard() {
                   connectionStatus.slice(1)}
               </span>
             </div>
-            {/* Refresh button */}
             <Button
               onClick={fetchAlertHistory}
               variant="outline"
@@ -477,7 +558,6 @@ export default function DroneDashboard() {
               />
               Refresh
             </Button>
-            {/* Mock button for testing */}
             <Button onClick={simulateAlert} variant="outline" size="sm">
               Simulate Alert
             </Button>
@@ -591,6 +671,52 @@ export default function DroneDashboard() {
                 >
                   {isPaused ? "Resume" : "Pause"} Live Updates
                 </Button>
+                <Separator orientation="vertical" className="h-6" />
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm font-medium text-gray-600">
+                    Source:
+                  </span>
+                  <div className="flex items-center bg-gray-100 rounded-lg p-1">
+                    <Button
+                      onClick={() => setSourceFilter("all")}
+                      variant="ghost"
+                      size="sm"
+                      className={`h-7 px-3 text-xs ${
+                        sourceFilter === "all"
+                          ? "bg-white shadow-sm"
+                          : "hover:bg-gray-200"
+                      }`}
+                    >
+                      All
+                    </Button>
+                    <Button
+                      onClick={() => setSourceFilter("onboard")}
+                      variant="ghost"
+                      size="sm"
+                      className={`h-7 px-3 text-xs ${
+                        sourceFilter === "onboard"
+                          ? "bg-white shadow-sm"
+                          : "hover:bg-gray-200"
+                      }`}
+                    >
+                      <Plane className="h-3 w-3 mr-1" />
+                      Onboard
+                    </Button>
+                    <Button
+                      onClick={() => setSourceFilter("offboard")}
+                      variant="ghost"
+                      size="sm"
+                      className={`h-7 px-3 text-xs ${
+                        sourceFilter === "offboard"
+                          ? "bg-white shadow-sm"
+                          : "hover:bg-gray-200"
+                      }`}
+                    >
+                      <MapPin className="h-3 w-3 mr-1" />
+                      Offboard
+                    </Button>
+                  </div>
+                </div>
                 <div className="text-sm text-gray-600">
                   {lastAlertTime && (
                     <span>Last alert: {formatTimestamp(lastAlertTime)}</span>
@@ -599,7 +725,13 @@ export default function DroneDashboard() {
               </div>
               <div className="flex items-center space-x-4 text-sm">
                 <span className="text-gray-600">
-                  Total alerts today:{" "}
+                  Showing:{" "}
+                  <span className="font-semibold">{filteredAlerts.length}</span>{" "}
+                  of <span className="font-semibold">{alerts.length}</span>{" "}
+                  alerts
+                </span>
+                <span className="text-gray-600">
+                  Total today:{" "}
                   <span className="font-semibold">{alertCount}</span>
                 </span>
                 {alertBatchRef.current.length > 0 && (
@@ -634,6 +766,19 @@ export default function DroneDashboard() {
                           <Badge variant="outline" className="text-xs">
                             {currentAlert.type}
                           </Badge>
+                          {currentAlert.source && (
+                            <Badge
+                              variant="outline"
+                              className={`text-xs ${getSourceColor(
+                                currentAlert.source
+                              )}`}
+                            >
+                              {getSourceIcon(currentAlert.source)}
+                              <span className="ml-1 capitalize">
+                                {currentAlert.source}
+                              </span>
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-sm text-gray-600 mt-1">
                           {currentAlert.message}
@@ -665,7 +810,8 @@ export default function DroneDashboard() {
                   <Image
                     src={
                       currentAlert.image ||
-                      "/placeholder.svg?height=300&width=400"
+                      "/placeholder.svg?height=300&width=400" ||
+                      "/placeholder.svg"
                     }
                     alt="Detection"
                     fill
@@ -678,7 +824,7 @@ export default function DroneDashboard() {
         )}
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
@@ -719,6 +865,38 @@ export default function DroneDashboard() {
                   filteredAlerts.filter((alert) => alert.type === "animal")
                     .length
                 }
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                Onboard vs Offboard
+              </CardTitle>
+              <Plane className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span>Onboard:</span>
+                  <span className="font-semibold">
+                    {
+                      filteredAlerts.filter(
+                        (alert) => alert.source === "onboard"
+                      ).length
+                    }
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Offboard:</span>
+                  <span className="font-semibold">
+                    {
+                      filteredAlerts.filter(
+                        (alert) => alert.source === "offboard"
+                      ).length
+                    }
+                  </span>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -767,7 +945,8 @@ export default function DroneDashboard() {
                   <Camera className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>
                     No alerts found for{" "}
-                    {getDateFilterLabel(dateFilter).toLowerCase()}.
+                    {getDateFilterLabel(dateFilter).toLowerCase()}
+                    {sourceFilter !== "all" && ` from ${sourceFilter} source`}.
                   </p>
                 </div>
               ) : (
@@ -793,6 +972,19 @@ export default function DroneDashboard() {
                               <Badge variant="outline" className="text-xs">
                                 {alert.type}
                               </Badge>
+                              {alert.source && (
+                                <Badge
+                                  variant="outline"
+                                  className={`text-xs ${getSourceColor(
+                                    alert.source
+                                  )}`}
+                                >
+                                  {getSourceIcon(alert.source)}
+                                  <span className="ml-1 capitalize">
+                                    {alert.source}
+                                  </span>
+                                </Badge>
+                              )}
                               <ExternalLink className="h-4 w-4 text-gray-400" />
                             </div>
                             <div className="flex items-center space-x-4 text-xs text-gray-500">
@@ -810,7 +1002,8 @@ export default function DroneDashboard() {
                             <Image
                               src={
                                 alert.image ||
-                                "/placeholder.svg?height=300&width=400"
+                                "/placeholder.svg?height=300&width=400" ||
+                                "/placeholder.svg"
                               }
                               alt="Detection"
                               fill
