@@ -962,6 +962,7 @@ export default function DroneDashboard() {
                 <div className="space-y-2">
                   {filteredAlerts.map((alert, index) => (
                     <a
+                      key={alert.id}
                       href={`/alert/${alert.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
