@@ -84,7 +84,7 @@ export default function DroneDashboard() {
     router.push(`/alert/${alert.id}`);
   };
 
-  // Fetch alert history from backend
+  // Fetch alert history from backendgit push --set-upstream origin version2development
   const fetchAlertHistory = async () => {
     setIsLoading(true);
     try {
@@ -751,75 +751,84 @@ export default function DroneDashboard() {
               currentAlert.type
             )} animate-pulse`}
           >
-            <CardContent className="py-4">
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="md:col-span-2 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      {getAlertIcon(currentAlert.type)}
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="font-semibold">LIVE ALERT</span>
-                          <Badge variant="destructive" className="text-xs">
-                            Active
-                          </Badge>
-                          <Badge variant="outline" className="text-xs">
-                            {currentAlert.type}
-                          </Badge>
-                          {currentAlert.source && (
-                            <Badge
-                              variant="outline"
-                              className={`text-xs ${getSourceColor(
-                                currentAlert.source
-                              )}`}
-                            >
-                              {getSourceIcon(currentAlert.source)}
-                              <span className="ml-1 capitalize">
-                                {currentAlert.source}
-                              </span>
+            <a
+              href={`/alert/${currentAlert.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="... block"
+            >
+              <CardContent className="py-4">
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        {getAlertIcon(currentAlert.type)}
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <span className="font-semibold">LIVE ALERT</span>
+                            <Badge variant="destructive" className="text-xs">
+                              Active
                             </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-gray-600 mt-1">
-                          {currentAlert.message}
-                        </p>
-                        <div className="flex items-center space-x-3 text-xs text-gray-500 mt-1">
-                          <span>{formatTimestamp(currentAlert.timestamp)}</span>
-                          {currentAlert.confidence && (
+                            <Badge variant="outline" className="text-xs">
+                              {currentAlert.type}
+                            </Badge>
+                            {currentAlert.source && (
+                              <Badge
+                                variant="outline"
+                                className={`text-xs ${getSourceColor(
+                                  currentAlert.source
+                                )}`}
+                              >
+                                {getSourceIcon(currentAlert.source)}
+                                <span className="ml-1 capitalize">
+                                  {currentAlert.source}
+                                </span>
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-600 mt-1">
+                            {currentAlert.message}
+                          </p>
+                          <div className="flex items-center space-x-3 text-xs text-gray-500 mt-1">
                             <span>
-                              {formatConfidence(currentAlert.confidence)}{" "}
-                              confidence
+                              {formatTimestamp(currentAlert.timestamp)}
                             </span>
-                          )}
-                          {currentAlert.drone_id && (
-                            <span>{currentAlert.drone_id}</span>
-                          )}
+                            {currentAlert.confidence && (
+                              <span>
+                                {formatConfidence(currentAlert.confidence)}{" "}
+                                confidence
+                              </span>
+                            )}
+                            {currentAlert.drone_id && (
+                              <span>{currentAlert.drone_id}</span>
+                            )}
+                          </div>
                         </div>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setCurrentAlert(null)}
+                      >
+                        ×
+                      </Button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setCurrentAlert(null)}
-                    >
-                      ×
-                    </Button>
+                  </div>
+                  <div className="relative h-48 bg-gray-100 rounded-lg overflow-hidden">
+                    <Image
+                      src={
+                        currentAlert.image ||
+                        "/placeholder.svg?height=300&width=400" ||
+                        "/placeholder.svg"
+                      }
+                      alt="Detection"
+                      fill
+                      className="object-cover"
+                    />
                   </div>
                 </div>
-                <div className="relative h-48 bg-gray-100 rounded-lg overflow-hidden">
-                  <Image
-                    src={
-                      currentAlert.image ||
-                      "/placeholder.svg?height=300&width=400" ||
-                      "/placeholder.svg"
-                    }
-                    alt="Detection"
-                    fill
-                    className="object-cover"
-                  />
-                </div>
-              </div>
-            </CardContent>
+              </CardContent>
+            </a>
           </Card>
         )}
 
@@ -952,68 +961,77 @@ export default function DroneDashboard() {
               ) : (
                 <div className="space-y-2">
                   {filteredAlerts.map((alert, index) => (
-                    <div key={alert.id}>
-                      <div
-                        className="flex space-x-4 p-3 hover:bg-gray-50 rounded-lg transition-colors cursor-pointer"
-                        onClick={() => handleAlertClick(alert)}
-                      >
+                    <a
+                      href={`/alert/${alert.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="... block"
+                    >
+                      <div key={alert.id}>
                         <div
-                          className={`w-3 h-3 rounded-full mt-2 ${getAlertColor(
-                            alert.type
-                          )}`}
-                        />
-                        <div className="flex-1 grid md:grid-cols-3 gap-4">
-                          <div className="md:col-span-2 space-y-1">
-                            <div className="flex items-center space-x-2">
-                              {getAlertIcon(alert.type)}
-                              <span className="font-medium text-sm">
-                                {alert.message}
-                              </span>
-                              <Badge variant="outline" className="text-xs">
-                                {alert.type}
-                              </Badge>
-                              {alert.source && (
-                                <Badge
-                                  variant="outline"
-                                  className={`text-xs ${getSourceColor(
-                                    alert.source
-                                  )}`}
-                                >
-                                  {getSourceIcon(alert.source)}
-                                  <span className="ml-1 capitalize">
-                                    {alert.source}
-                                  </span>
-                                </Badge>
-                              )}
-                              <ExternalLink className="h-4 w-4 text-gray-400" />
-                            </div>
-                            <div className="flex items-center space-x-4 text-xs text-gray-500">
-                              <span>{formatTimestamp(alert.timestamp)}</span>
-                              {alert.confidence && (
-                                <span>
-                                  {formatConfidence(alert.confidence)}{" "}
-                                  confidence
+                          className="flex space-x-4 p-3 hover:bg-gray-50 rounded-lg transition-colors cursor-pointer"
+                          // onClick={() => handleAlertClick(alert)}
+                        >
+                          <div
+                            className={`w-3 h-3 rounded-full mt-2 ${getAlertColor(
+                              alert.type
+                            )}`}
+                          />
+                          <div className="flex-1 grid md:grid-cols-3 gap-4">
+                            <div className="md:col-span-2 space-y-1">
+                              <div className="flex items-center space-x-2">
+                                {getAlertIcon(alert.type)}
+                                <span className="font-medium text-sm">
+                                  {alert.message}
                                 </span>
-                              )}
-                              {alert.drone_id && <span>{alert.drone_id}</span>}
+                                <Badge variant="outline" className="text-xs">
+                                  {alert.type}
+                                </Badge>
+                                {alert.source && (
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-xs ${getSourceColor(
+                                      alert.source
+                                    )}`}
+                                  >
+                                    {getSourceIcon(alert.source)}
+                                    <span className="ml-1 capitalize">
+                                      {alert.source}
+                                    </span>
+                                  </Badge>
+                                )}
+                                <ExternalLink className="h-4 w-4 text-gray-400" />
+                              </div>
+                              <div className="flex items-center space-x-4 text-xs text-gray-500">
+                                <span>{formatTimestamp(alert.timestamp)}</span>
+                                {alert.confidence && (
+                                  <span>
+                                    {formatConfidence(alert.confidence)}{" "}
+                                    confidence
+                                  </span>
+                                )}
+                                {alert.drone_id && (
+                                  <span>{alert.drone_id}</span>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                          <div className="relative h-24 bg-gray-100 rounded overflow-hidden">
-                            <Image
-                              src={
-                                alert.image ||
-                                "/placeholder.svg?height=300&width=400" ||
-                                "/placeholder.svg"
-                              }
-                              alt="Detection"
-                              fill
-                              className="object-cover"
-                            />
+                            <div className="relative h-24 bg-gray-100 rounded overflow-hidden">
+                              <Image
+                                src={
+                                  alert.image ||
+                                  "/placeholder.svg?height=300&width=400" ||
+                                  "/placeholder.svg"
+                                }
+                                alt="Detection"
+                                fill
+                                className="object-cover"
+                              />
+                            </div>
                           </div>
                         </div>
+                        {index < filteredAlerts.length - 1 && <Separator />}
                       </div>
-                      {index < filteredAlerts.length - 1 && <Separator />}
-                    </div>
+                    </a>
                   ))}
                 </div>
               )}
